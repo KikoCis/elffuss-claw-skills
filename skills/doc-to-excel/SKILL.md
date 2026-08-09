@@ -1,94 +1,89 @@
 ---
 name: doc-to-excel
-description: Coge datos de un documento (CSV/texto/tabla pegada o un .xlsx de una carpeta autorizada) y genera un Excel DESCARGABLE con fórmulas y una gráfica, dentro del navegador. Úsala cuando el usuario pida "pasa esto a Excel", "un Excel con fórmulas y gráficas", "convierte este documento en tabla" o quiera analizar/visualizar datos.
+description: Coge datos de un documento (CSV/texto/tabla pegada o un .xlsx de una carpeta autorizada) y genera un DASHBOARD con KPIs y gráficas y un Excel DESCARGABLE con fórmulas, dentro del navegador. Úsala cuando el usuario pida "pasa esto a Excel", "un dashboard", "un Excel con fórmulas y gráficas", "analiza/visualiza estos datos".
 ---
 
-# doc-to-excel — de un documento a un Excel con fórmulas y gráficas
+# doc-to-excel — de un documento a un dashboard + Excel con fórmulas
 
-Todo local: se parsean los datos, se dibuja una **gráfica** (Chart.js), y se genera un `.xlsx` con
-**fórmulas reales** (SheetJS) que se descarga. Adapta las columnas/tipo de gráfica a los datos del
-usuario; deja el flujo (parsear → tabla → gráfica → descargar) como está.
+Todo local: parsea los datos, muestra **KPIs** (totales, beneficio, margen) y **gráficas**
+(Chart.js: barras + donut), y genera un `.xlsx` con **fórmulas reales** (SheetJS) descargable.
+Adapta KPIs/columnas/tipo de gráfica a los datos; deja el flujo intacto.
 
-Honesto sobre gráficas: SheetJS (community) escribe **datos + fórmulas** pero **no incrusta gráficas
-nativas** en el `.xlsx` de forma fiable → la gráfica va en la app; en Excel el usuario hace
-«Insertar gráfico» sobre los datos. La fórmula va **sin `=`**, como `{t:'n', f:'SUM(B2:B6)'}`.
+Honesto: SheetJS (community) escribe **datos + fórmulas** pero **no incrusta gráficas nativas** en
+el `.xlsx` → las gráficas van en la app; en Excel el usuario hace «Insertar gráfico». La fórmula va
+**sin `=`**, como `{t:'n', f:'SUM(B2:B7)'}`.
 
-## App COMPLETA y probada — cópiala y adapta solo lo que se indica
+## App COMPLETA y probada — cópiala y adapta solo lo indicado
 
 ```html
 <!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Documento → Excel</title>
+<title>Documento → Excel · Dashboard</title>
 <style>
   body{margin:0;font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3}
-  header{padding:14px 18px;border-bottom:1px solid #232a34;font-weight:650}
-  main{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;max-width:1100px}
-  @media(max-width:780px){main{grid-template-columns:1fr}}
+  header{padding:14px 18px;border-bottom:1px solid #232a34;font-weight:650;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  header .in{margin-left:auto;display:flex;gap:8px}
+  header textarea{width:280px;height:34px;background:#0b0f14;color:#e6edf3;border:1px solid #232a34;border-radius:8px;padding:7px;font-family:ui-monospace,monospace;font-size:.72rem;resize:none}
+  button{background:linear-gradient(135deg,#7c5cff,#ff5cd6);color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;cursor:pointer}
+  .wrap{padding:16px;max-width:1120px;margin:auto}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .kpi{background:#161b22;border:1px solid #232a34;border-radius:12px;padding:14px 16px}
+  .kpi .lab{font-size:.72rem;color:#8b949e;text-transform:uppercase;letter-spacing:.4px}
+  .kpi .val{font-size:1.7rem;font-weight:750;margin-top:4px}
+  .kpi .val.g{color:#3fb950}.kpi .val.p{color:#ff5cd6}.kpi .val.v{color:#8f7cff}
+  .charts{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
   .card{background:#161b22;border:1px solid #232a34;border-radius:12px;padding:14px}
-  textarea{width:100%;height:150px;background:#0b0f14;color:#e6edf3;border:1px solid #232a34;border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:.82rem;box-sizing:border-box}
-  table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:10px}
-  th,td{border:1px solid #232a34;padding:6px 9px;text-align:right}th:first-child,td:first-child{text-align:left}
-  th{background:#0b0f14;color:#8b949e}
-  button{background:linear-gradient(135deg,#7c5cff,#ff5cd6);color:#fff;border:none;border-radius:9px;padding:10px 16px;font-weight:600;cursor:pointer;margin-top:10px}
-  canvas{margin-top:8px}
+  .card h3{margin:0 0 8px;font-size:.82rem;color:#8b949e;font-weight:600}
 </style></head>
 <body>
-<header>📄 → 📊 Documento a Excel (con fórmulas y gráfica)</header>
-<main>
-  <section class="card">
-    <div style="font-size:.8rem;color:#8b949e;margin-bottom:6px">Pega tus datos (CSV: primera fila cabeceras)</div>
-    <textarea id="src">Mes,Ventas,Gastos
+<header>📊 Dashboard desde tus datos
+  <div class="in"><textarea id="src">Mes,Ventas,Gastos
 Ene,1200,800
 Feb,1500,900
 Mar,2100,1100
 Abr,1800,950
-May,2400,1200</textarea>
-    <button id="go">Generar tabla y gráfica</button>
-    <button id="dl">⬇ Descargar Excel</button>
-  </section>
-  <section class="card">
-    <div id="tablewrap"></div>
-    <canvas id="chart" height="180"></canvas>
-  </section>
-</main>
+May,2400,1200
+Jun,2700,1250</textarea><button id="go">Actualizar</button><button id="dl">⬇ Excel</button></div>
+</header>
+<div class="wrap">
+  <div class="kpis" id="kpis"></div>
+  <div class="charts">
+    <div class="card"><h3>Evolución mensual</h3><canvas id="bar" height="150"></canvas></div>
+    <div class="card"><h3>Reparto de ventas</h3><canvas id="dough" height="150"></canvas></div>
+  </div>
+</div>
 <script type="module">
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
 import Chart from 'https://esm.sh/chart.js@4/auto';
-const $=id=>document.getElementById(id);
-let rows=[], chart=null;
-function parse(txt){ return txt.trim().split(/\n/).map(l=>l.split(',').map(c=>{const n=Number(c);return c.trim()!==''&&!isNaN(n)?n:c.trim();})); }
+const $=id=>document.getElementById(id); let rows=[], c1=null,c2=null;
+const parse=t=>t.trim().split(/\n/).map(l=>l.split(',').map(c=>{const n=Number(c);return c.trim()!==''&&!isNaN(n)?n:c.trim();}));
+const fmt=n=>n.toLocaleString('es-ES');
 function render(){
   rows=parse($('src').value); const head=rows[0], body=rows.slice(1);
-  // tabla + fila TOTAL con fórmula visible
-  let h='<table><thead><tr>'+head.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
-  h+=body.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
-  const totals=head.map((c,i)=> i===0?'Total': body.reduce((a,r)=>a+(+r[i]||0),0));
-  h+='<tr>'+totals.map((c,i)=>`<td><b>${c}</b></td>`).join('')+'</tr></tbody></table>';
-  $('tablewrap').innerHTML=h;
-  // gráfica (todas las columnas numéricas)
-  const numCols=head.map((c,i)=>i).filter(i=>i>0 && body.every(r=>typeof r[i]==='number'));
-  if(chart) chart.destroy();
-  chart=new Chart($('chart'),{ type:'bar',
-    data:{ labels:body.map(r=>r[0]), datasets:numCols.map((i,k)=>({ label:head[i], data:body.map(r=>r[i]),
-      backgroundColor:['#7c5cff','#ff5cd6','#3fb950','#f0b429'][k%4] })) },
-    options:{ plugins:{legend:{labels:{color:'#e6edf3'}}}, scales:{x:{ticks:{color:'#8b949e'}},y:{ticks:{color:'#8b949e'}}} } });
+  const ventas=body.map(r=>+r[1]||0), gastos=body.map(r=>+r[2]||0);
+  const tV=ventas.reduce((a,b)=>a+b,0), tG=gastos.reduce((a,b)=>a+b,0), ben=tV-tG, marg=tV?Math.round(ben/tV*100):0;
+  $('kpis').innerHTML=[['Ventas',fmt(tV)+' €','v'],['Gastos',fmt(tG)+' €','p'],['Beneficio',fmt(ben)+' €','g'],['Margen',marg+' %','g']]
+    .map(([l,v,c])=>`<div class="kpi"><div class="lab">${l}</div><div class="val ${c}">${v}</div></div>`).join('');
+  if(c1)c1.destroy(); if(c2)c2.destroy();
+  c1=new Chart($('bar'),{type:'bar',data:{labels:body.map(r=>r[0]),datasets:[
+    {label:'Ventas',data:ventas,backgroundColor:'#8f7cff',borderRadius:5},
+    {label:'Gastos',data:gastos,backgroundColor:'#ff5cd6',borderRadius:5}]},
+    options:{plugins:{legend:{labels:{color:'#e6edf3'}}},scales:{x:{ticks:{color:'#8b949e'},grid:{display:false}},y:{ticks:{color:'#8b949e'},grid:{color:'#1c232e'}}}}});
+  c2=new Chart($('dough'),{type:'doughnut',data:{labels:body.map(r=>r[0]),datasets:[{data:ventas,
+    backgroundColor:['#8f7cff','#ff5cd6','#3fb950','#f0b429','#4bb8ff','#ff8c42']}]},
+    options:{plugins:{legend:{position:'right',labels:{color:'#e6edf3',font:{size:10}}}},cutout:'58%'}});
 }
-function buildWB(){
-  const head=rows[0], body=rows.slice(1);
-  const data=[...rows];
-  // fila de fórmulas SUM por columna numérica
-  const total=['Total']; for(let ci=1;ci<head.length;ci++){ const col=XLSX.utils.encode_col(ci);
-    total.push({t:'n', f:`SUM(${col}2:${col}${body.length+1})`}); }
-  data.push(total);
-  const ws=XLSX.utils.aoa_to_sheet(data); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Datos'); return wb;
-}
-$('go').addEventListener('click',render);
-$('dl').addEventListener('click',()=>{ const buf=XLSX.write(buildWB(),{bookType:'xlsx',type:'array'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-  a.download='datos.xlsx'; a.click(); });
+function buildWB(){ const head=rows[0], body=rows.slice(1); const data=[...rows];
+  const total=['Total']; for(let ci=1;ci<head.length;ci++){const col=XLSX.utils.encode_col(ci);total.push({t:'n',f:`SUM(${col}2:${col}${body.length+1})`});}
+  data.push(total); data.push(['Beneficio',{t:'n',f:`B${body.length+2}-C${body.length+2}`}]);
+  const ws=XLSX.utils.aoa_to_sheet(data); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Datos'); return wb; }
+$('go').onclick=render;
+$('dl').onclick=()=>{const buf=XLSX.write(buildWB(),{bookType:'xlsx',type:'array'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download='dashboard.xlsx';a.click();};
 render();
-window.__test=()=>{ const buf=XLSX.write(buildWB(),{bookType:'xlsx',type:'array'}); const ws=buildWB().Sheets.Datos;
-  return { xlsxBytes:buf.byteLength, hasFormula:!!ws['B7']&&/SUM/.test(ws['B7'].f||''), chart:!!chart }; };
+window.__test=()=>{const ws=buildWB().Sheets.Datos;const buf=XLSX.write(buildWB(),{bookType:'xlsx',type:'array'});
+  return {xlsxBytes:buf.byteLength,hasFormula:!!ws['B8']&&/SUM/.test(ws['B8'].f||''),charts:!!c1&&!!c2,kpis:document.querySelectorAll('.kpi').length};};
 window.__ready=true;
 </script>
 </body></html>
