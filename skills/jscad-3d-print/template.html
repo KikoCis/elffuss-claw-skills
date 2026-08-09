@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Modelo 3D imprimible</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;display:flex;flex-direction:column;height:100vh}
+  #view{flex:1;min-height:0}
+  #bar{padding:12px 16px;border-top:1px solid #232a34;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  label{font-size:.8rem;color:#8b949e;display:flex;flex-direction:column;gap:3px}
+  input[type=range]{width:130px}
+  button{background:linear-gradient(135deg,#7c5cff,#ff5cd6);color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:600;cursor:pointer}
+  #info{font-size:.78rem;color:#8b949e;margin-left:auto}
+</style></head>
+<body>
+<canvas id="view"></canvas>
+<div id="bar">
+  <label>Ancho <input id="w" type="range" min="20" max="80" value="50"></label>
+  <label>Alto <input id="h" type="range" min="10" max="60" value="30"></label>
+  <label>Radio esquina <input id="r" type="range" min="0" max="12" value="6"></label>
+  <label>Agujero ⌀ <input id="hole" type="range" min="0" max="30" value="14"></label>
+  <button id="dl">⬇ Descargar STL</button>
+  <span id="info"></span>
+</div>
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.160';
+import { primitives, booleans, transforms, extrusions, geometries } from 'https://esm.sh/@jscad/modeling@2';
+import stlSerializer from 'https://esm.sh/@jscad/stl-serializer@2';
+
+// ---- 1) construir el modelo con JSCAD (paramétrico, en mm) ----
+function build({ w, h, r, hole }) {
+  // placa con esquinas redondeadas
+  let solid = primitives.roundedRectangle
+    ? extrusions.extrudeLinear({ height: h }, primitives.roundedRectangle({ size: [w, w], roundRadius: Math.min(r, w/2 - 0.1) }))
+    : primitives.cuboid({ size: [w, w, h] });
+  // agujero pasante centrado
+  if (hole > 0) {
+    const bore = transforms.translate([0, 0, h/2], primitives.cylinder({ height: h + 2, radius: hole/2, segments: 48 }));
+    solid = booleans.subtract(solid, bore);
+  }
+  return solid;
+}
+
+// ---- 2) JSCAD geom3 → THREE.BufferGeometry (para el preview) ----
+function toThree(geom) {
+  const polys = geometries.geom3.toPolygons(geom);
+  const pos = [];
+  for (const p of polys) {
+    const v = p.vertices;
+    for (let i = 2; i < v.length; i++) { // abanico de triángulos
+      pos.push(...v[0], ...v[i - 1], ...v[i]);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals(); g.center();
+  return g;
+}
+
+// ---- 3) preview 3D con Three.js ----
+const canvas = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0d1117);
+const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+scene.add(new THREE.AmbientLight(0x99a, 0.6));
+const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(1, 1.5, 1); scene.add(key);
+const mat = new THREE.MeshStandardMaterial({ color: 0x8ab4f8, metalness: 0.2, roughness: 0.5, flatShading: true });
+let mesh = null, current = null;
+function resize() { const w = canvas.clientWidth || 600, h = canvas.clientHeight || 400; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+function refresh() {
+  const params = { w: +w.value, h: +h.value, r: +r.value, hole: +hole.value };
+  current = build(params);
+  if (mesh) scene.remove(mesh);
+  const g = toThree(current);
+  mesh = new THREE.Mesh(g, mat); scene.add(mesh);
+  g.computeBoundingSphere(); const rad = g.boundingSphere.radius;
+  cam.position.set(rad * 1.8, rad * 1.4, rad * 2.2); cam.lookAt(0, 0, 0);
+  document.getElementById('info').textContent = `${params.w}×${params.w}×${params.h} mm`;
+}
+for (const el of [w, h, r, hole]) el.addEventListener('input', refresh);
+window.addEventListener('resize', () => { resize(); });
+resize(); refresh();
+(function loop(){ mesh && (mesh.rotation.y += 0.006); renderer.render(scene, cam); requestAnimationFrame(loop); })();
+
+// ---- 4) descargar STL imprimible ----
+document.getElementById('dl').addEventListener('click', () => {
+  const data = stlSerializer.serialize({ binary: true }, current);
+  const blob = new Blob(data, { type: 'model/stl' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'modelo.stl'; a.click(); URL.revokeObjectURL(a.href);
+});
+
+// para el test automático
+window.__exportSTL = () => { const t = stlSerializer.serialize({ binary: false }, current); return Array.isArray(t) ? t.join('') : String(t); };
+window.__ready = true;
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flappy</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}
+  canvas{background:linear-gradient(#5cc8ff,#bfefff);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);touch-action:none}
+</style></head>
+<body>
+<canvas id="g" width="360" height="560"></canvas>
+<script>
+const c=document.getElementById('g'), x=c.getContext('2d'), W=c.width, H=c.height;
+const S={ y:H/2, v:0, pipes:[], t:0, score:0, best:0, over:false, started:false };
+const G=0.45, FLAP=-7.6, GAP=140, PW=54, SPD=2.3, BR=14;
+function reset(){ S.y=H/2; S.v=0; S.pipes=[]; S.t=0; S.score=0; S.over=false; S.started=false; }
+function flap(){ if(S.over){ reset(); return; } S.started=true; S.v=FLAP; }
+addEventListener('keydown',e=>{ if(e.code==='Space'){e.preventDefault(); flap();} });
+c.addEventListener('pointerdown',flap);
+function step(){
+  if(S.started && !S.over){
+    S.v+=G; S.y+=S.v; S.t++;
+    if(S.t%95===0) S.pipes.push({ x:W, gap:60+Math.random()*(H-260), passed:false });
+    for(const p of S.pipes) p.x-=SPD;
+    S.pipes=S.pipes.filter(p=>p.x>-PW);
+    for(const p of S.pipes){
+      if(!p.passed && p.x+PW<80){ p.passed=true; S.score++; S.best=Math.max(S.best,S.score); }
+      const inX=80+BR>p.x && 80-BR<p.x+PW;
+      if(inX && (S.y-BR<p.gap || S.y+BR>p.gap+GAP)) S.over=true;
+    }
+    if(S.y+BR>H || S.y-BR<0) S.over=true;
+  }
+  draw();
+  requestAnimationFrame(step);
+}
+function draw(){
+  x.clearRect(0,0,W,H);
+  x.fillStyle='#2ecc71';
+  for(const p of S.pipes){ x.fillRect(p.x,0,PW,p.gap); x.fillRect(p.x,p.gap+GAP,PW,H-p.gap-GAP); }
+  // pájaro
+  x.save(); x.translate(80,S.y); x.rotate(Math.max(-0.5,Math.min(1,S.v/12)));
+  x.fillStyle='#ffd23f'; x.beginPath(); x.arc(0,0,BR,0,7); x.fill();
+  x.fillStyle='#111'; x.beginPath(); x.arc(5,-4,2.5,0,7); x.fill();
+  x.fillStyle='#ff8c42'; x.beginPath(); x.moveTo(BR,0); x.lineTo(BR+7,3); x.lineTo(BR,6); x.fill();
+  x.restore();
+  x.fillStyle='#0d1117'; x.font='bold 30px system-ui'; x.textAlign='center'; x.fillText(S.score,W/2,54);
+  if(!S.started){ x.fillStyle='rgba(13,17,23,.75)'; x.font='16px system-ui'; x.fillText('toca o ESPACIO para volar',W/2,H/2+60); }
+  if(S.over){ x.fillStyle='rgba(13,17,23,.85)'; x.font='bold 26px system-ui'; x.fillText('¡Chocaste!',W/2,H/2); x.font='15px system-ui'; x.fillText('toca para reintentar · récord '+S.best,W/2,H/2+28); }
+}
+// API para test automático
+window.__game={ S, flap, get frame(){return S.t;} };
+step();
+</script>
+</body></html>
