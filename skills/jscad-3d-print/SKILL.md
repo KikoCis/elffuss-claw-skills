@@ -1,73 +1,89 @@
 ---
 name: jscad-3d-print
-description: Genera un objeto 3D IMPRIMIBLE (STL) desde una descripción, dentro del navegador. Úsala cuando el usuario pida "hazme una pieza/soporte/caja/adaptador para imprimir", "un modelo 3D", "un STL", o describa un objeto físico a fabricar. Crea una app con vista 3D, parámetros (sliders) y botón de descargar STL — todo local con JSCAD, sin Python ni servidor.
+description: Genera un objeto 3D IMPRIMIBLE (STL) desde una descripción, dentro del navegador. Úsala cuando el usuario pida "hazme una pieza/soporte/caja/portalápices para imprimir", "un modelo 3D", "un STL" o describa un objeto físico a fabricar. Crea una app con vista 3D orbitable, sliders de parámetros y botón de descargar STL — todo local con JSCAD, sin Python.
 ---
 
 # jscad-3d-print — de una idea a un STL imprimible, en el navegador
 
-JSCAD (`@jscad/modeling`) es CAD paramétrico que corre en el navegador y exporta STL listo
-para laminar (Snapmaker, Bambu, Prusa…). No necesita Python ni backend: se importa por CDN y la
-app resultante genera el modelo y lo descarga. Esta es la vía browser-native para 3D imprimible.
+JSCAD (`@jscad/modeling`) es CAD paramétrico que corre en el navegador y exporta STL para laminar
+(Snapmaker, Bambu, Prusa). Genera una app HTML autocontenida que construye el sólido, lo muestra en
+3D (orbitable) y lo descarga como STL. **Cambia SOLO la función `build()`** para el objeto pedido;
+deja intacto el resto (conversión a Three, órbita, descarga).
 
-## Qué generar
+Reglas para que sea imprimible (FDM): todo en **mm**, base plana, paredes **≥ 1.2 mm**, cierra el
+sólido (union de partes que se tocan), `segments` 32–64 en piezas redondas. `@jscad/modeling` **no
+tiene `cone`** → usa `cylinderElliptic({height, startRadius:[r,r], endRadius:[0.2,0.2]})`.
 
-Una app HTML autocontenida que: (1) construye el sólido con JSCAD a partir de parámetros,
-(2) lo previsualiza en 3D con Three.js, (3) tiene un botón **Descargar STL**. Copia el patrón de
-abajo y cambia SOLO la función `build()` para el objeto que pida el usuario.
-
-## Patrón que FUNCIONA (cámbialo lo mínimo)
-
-- Imports por CDN (esm.sh): `three`, `@jscad/modeling`, `@jscad/stl-serializer`.
-- Geometría con JSCAD: `primitives` (cuboid, cylinder, sphere, roundedRectangle…),
-  `booleans` (union, subtract, intersect), `transforms` (translate, rotate, scale),
-  `extrusions` (extrudeLinear).
-- Previa: convierte el geom3 de JSCAD a `THREE.BufferGeometry` recorriendo
-  `geometries.geom3.toPolygons(geom)` y triangulando cada polígono en abanico.
-- Export: `stlSerializer.serialize({binary:true}, solid)` → `Blob(type:'model/stl')` → descargar.
+## App COMPLETA y probada — cópiala y adapta solo lo que se indica
 
 ```html
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Modelo 3D imprimible</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;display:flex;flex-direction:column;height:100vh}
+  #view{flex:1;min-height:0;cursor:grab} #view:active{cursor:grabbing}
+  #bar{padding:12px 16px;border-top:1px solid #232a34;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  label{font-size:.78rem;color:#8b949e;display:flex;flex-direction:column;gap:3px}
+  input[type=range]{width:120px;accent-color:#7c5cff}
+  button{background:linear-gradient(135deg,#7c5cff,#ff5cd6);color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:600;cursor:pointer}
+  #info{font-size:.78rem;color:#8b949e;margin-left:auto}
+</style></head>
+<body>
+<canvas id="view"></canvas>
+<div id="bar">
+  <label>Lados <input id="sides" type="range" min="3" max="12" value="6"></label>
+  <label>Radio <input id="rad" type="range" min="18" max="55" value="32"></label>
+  <label>Alto <input id="hgt" type="range" min="20" max="110" value="75"></label>
+  <label>Pared <input id="wall" type="range" min="1.6" max="6" step="0.2" value="2.4"></label>
+  <button id="dl">⬇ Descargar STL</button>
+  <span id="info"></span>
+</div>
 <script type="module">
 import * as THREE from 'https://esm.sh/three@0.160';
-import { primitives, booleans, transforms, extrusions, geometries } from 'https://esm.sh/@jscad/modeling@2';
+import { OrbitControls } from 'https://esm.sh/three@0.160/examples/jsm/controls/OrbitControls.js';
+import { primitives, booleans, transforms, geometries } from 'https://esm.sh/@jscad/modeling@2';
 import stlSerializer from 'https://esm.sh/@jscad/stl-serializer@2';
 
-// 1) EL MODELO (todo en mm). Cambia SOLO esto para el objeto pedido:
-function build({ w, h, r, hole }) {
-  let solid = extrusions.extrudeLinear({ height: h },
-    primitives.roundedRectangle({ size: [w, w], roundRadius: Math.min(r, w/2 - 0.1) }));
-  if (hole > 0) {
-    const bore = transforms.translate([0,0,h/2], primitives.cylinder({ height: h+2, radius: hole/2, segments: 48 }));
-    solid = booleans.subtract(solid, bore);
-  }
-  return solid;
+// 1) EL MODELO (mm). Portalápices hexagonal hueco con base. Cambia solo esto.
+function build({ sides, rad, hgt, wall }) {
+  const outer = primitives.cylinder({ height: hgt, radius: rad, segments: sides });
+  const inner = transforms.translate([0,0,wall],
+    primitives.cylinder({ height: hgt, radius: rad - wall, segments: sides }));
+  return booleans.subtract(outer, inner);
 }
-
-// 2) JSCAD → Three (para la previa)
 function toThree(geom){ const ps=[]; for(const p of geometries.geom3.toPolygons(geom)){const v=p.vertices;
   for(let i=2;i<v.length;i++) ps.push(...v[0],...v[i-1],...v[i]);}
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(ps,3));
   g.computeVertexNormals(); g.center(); return g; }
-
-// 3) descargar STL
-function downloadSTL(solid){ const data=stlSerializer.serialize({binary:true}, solid);
+const canvas=document.getElementById('view');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true}); renderer.toneMapping=THREE.ACESFilmicToneMapping;
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0d1117);
+const cam=new THREE.PerspectiveCamera(45,1,0.1,3000);
+const controls=new OrbitControls(cam,canvas); controls.enableDamping=true; controls.autoRotate=true; controls.autoRotateSpeed=1.1;
+scene.add(new THREE.HemisphereLight(0xbcd0ea,0x1a1f28,0.9));
+const key=new THREE.DirectionalLight(0xffffff,1.6); key.position.set(1,1.6,1.2); scene.add(key);
+const mat=new THREE.MeshStandardMaterial({color:0x8ab4f8,metalness:0.25,roughness:0.45});
+let mesh=null,current=null;
+const $=id=>document.getElementById(id);
+function resize(){const w=canvas.clientWidth||600,h=canvas.clientHeight||400;renderer.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
+function refresh(){
+  const params={sides:+sides.value,rad:+rad.value,hgt:+hgt.value,wall:+wall.value};
+  current=build(params);
+  if(mesh) scene.remove(mesh);
+  const g=toThree(current); mesh=new THREE.Mesh(g,mat); scene.add(mesh);
+  g.computeBoundingSphere(); const r=g.boundingSphere.radius; cam.position.set(r*1.6,r*1.2,r*2); controls.target.set(0,0,0);
+  $('info').textContent='⌀'+(params.rad*2)+'×'+params.hgt+' mm';
+}
+for(const el of [sides,rad,hgt,wall]) el.addEventListener('input',refresh);
+addEventListener('resize',resize); resize(); refresh();
+(function loop(){ controls.update(); renderer.render(scene,cam); requestAnimationFrame(loop); })();
+$('dl').addEventListener('click',()=>{ const data=stlSerializer.serialize({binary:true},current);
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(data,{type:'model/stl'}));
-  a.download='modelo.stl'; a.click(); }
+  a.download='modelo.stl'; a.click(); URL.revokeObjectURL(a.href); });
+window.__exportSTL=()=>{ const t=stlSerializer.serialize({binary:false},current); return Array.isArray(t)?t.join(''):String(t); };
+window.__ready=true;
 </script>
+</body></html>
 ```
-
-El `template.html` de esta carpeta es una app COMPLETA y probada (caja paramétrica con agujero,
-sliders, previa 3D y descarga STL, 548 triángulos). Úsalo como base.
-
-## Reglas para que salga imprimible (FDM)
-
-- **Todo en mm**, base plana sobre Z=0, sin voladizos que necesiten soporte salvo que se pida.
-- **Paredes ≥ 1.2 mm** (3 líneas de 0.4) y detalles ≥ 1 mm o desaparecen al imprimir.
-- Cierra siempre el sólido (union de partes que se tocan); un STL con huecos no lamina bien.
-- `segments: 32-64` en cilindros/esferas: menos se ve facetado, más pesa el STL.
-
-## Lo que ya falló
-
-- `@jscad/modeling` NO tiene `cone`: usa `cylinderElliptic({height, startRadius:[r,r], endRadius:[0.2,0.2]})`.
-- El default de `dtype`/binario da igual para STL; para descargar usa `{binary:true}` (más ligero).
-- No metas el HTML en un string JSON: Claw ya crea la app desde un bloque ```html — deja que el
-  visor la renderice y que el usuario pulse Descargar STL.

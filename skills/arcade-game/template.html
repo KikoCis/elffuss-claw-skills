@@ -3,50 +3,77 @@
 <title>Flappy</title>
 <style>
   html,body{margin:0;height:100%;background:#0d1117;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}
-  canvas{background:linear-gradient(#5cc8ff,#bfefff);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);touch-action:none}
+  canvas{border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.55);touch-action:none;cursor:pointer}
 </style></head>
 <body>
-<canvas id="g" width="360" height="560"></canvas>
+<canvas id="g" width="360" height="600"></canvas>
 <script>
 const c=document.getElementById('g'), x=c.getContext('2d'), W=c.width, H=c.height;
-const S={ y:H/2, v:0, pipes:[], t:0, score:0, best:0, over:false, started:false };
-const G=0.45, FLAP=-7.6, GAP=140, PW=54, SPD=2.3, BR=14;
-function reset(){ S.y=H/2; S.v=0; S.pipes=[]; S.t=0; S.score=0; S.over=false; S.started=false; }
-function flap(){ if(S.over){ reset(); return; } S.started=true; S.v=FLAP; }
-addEventListener('keydown',e=>{ if(e.code==='Space'){e.preventDefault(); flap();} });
+const GND=70;                         // altura del suelo
+const BR=13, PW=58, BIRDX=92;
+const cfg={ G:0.42, FLAP:-7.2, GAP0:160, GAPmin:120, SPD0:2.2, SPDmax:4.2, SPAWN0:110, SPAWNmin:78 };
+const S={ y:H/2, v:0, pipes:[], t:0, score:0, best:0, over:false, started:false, wing:0, shake:0 };
+const clouds=[...Array(4)].map((_,i)=>({x:i*110+30, y:40+i*33%160, s:0.3+0.2*(i%3)}));
+function reset(){ Object.assign(S,{y:H/2,v:0,pipes:[],t:0,score:0,over:false,started:false,wing:0,shake:0}); }
+function flap(){ if(S.over){ reset(); S.started=true; S.v=cfg.FLAP; S.wing=1; return; } S.started=true; S.v=cfg.FLAP; S.wing=1; }
+addEventListener('keydown',e=>{ if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault(); flap();} });
 c.addEventListener('pointerdown',flap);
-function step(){
-  if(S.started && !S.over){
-    S.v+=G; S.y+=S.v; S.t++;
-    if(S.t%95===0) S.pipes.push({ x:W, gap:60+Math.random()*(H-260), passed:false });
-    for(const p of S.pipes) p.x-=SPD;
-    S.pipes=S.pipes.filter(p=>p.x>-PW);
-    for(const p of S.pipes){
-      if(!p.passed && p.x+PW<80){ p.passed=true; S.score++; S.best=Math.max(S.best,S.score); }
-      const inX=80+BR>p.x && 80-BR<p.x+PW;
-      if(inX && (S.y-BR<p.gap || S.y+BR>p.gap+GAP)) S.over=true;
-    }
-    if(S.y+BR>H || S.y-BR<0) S.over=true;
+// dificultad que sube con la puntuación (suave)
+const gap=()=>Math.max(cfg.GAPmin, cfg.GAP0 - S.score*2.2);
+const spd=()=>Math.min(cfg.SPDmax, cfg.SPD0 + S.score*0.07);
+const spawnEvery=()=>Math.max(cfg.SPAWNmin, cfg.SPAWN0 - S.score*1.5);
+function update(){
+  if(!S.started || S.over) return;
+  S.v+=cfg.G; S.y+=S.v; S.t++; S.wing*=0.86; if(S.shake>0)S.shake--;
+  const g=gap();
+  if(S.t % Math.round(spawnEvery()) === 0){ const margin=50; S.pipes.push({x:W, gap:margin+Math.random()*(H-GND-2*margin-g), passed:false}); }
+  const v=spd();
+  for(const p of S.pipes) p.x-=v;
+  S.pipes=S.pipes.filter(p=>p.x>-PW);
+  for(const p of S.pipes){
+    if(!p.passed && p.x+PW<BIRDX){ p.passed=true; S.score++; S.best=Math.max(S.best,S.score); }
+    const inX=BIRDX+BR>p.x && BIRDX-BR<p.x+PW;
+    if(inX && (S.y-BR<p.gap || S.y+BR>p.gap+g)){ S.over=true; S.shake=10; }
   }
-  draw();
-  requestAnimationFrame(step);
+  if(S.y+BR>H-GND){ S.y=H-GND-BR; S.over=true; S.shake=10; }
+  if(S.y-BR<0){ S.y=BR; S.v=0; }
 }
 function draw(){
-  x.clearRect(0,0,W,H);
-  x.fillStyle='#2ecc71';
-  for(const p of S.pipes){ x.fillRect(p.x,0,PW,p.gap); x.fillRect(p.x,p.gap+GAP,PW,H-p.gap-GAP); }
+  const sh=S.shake>0?(Math.random()*2-1)*S.shake*0.4:0;
+  x.save(); x.translate(sh,0);
+  // cielo
+  const sky=x.createLinearGradient(0,0,0,H-GND); sky.addColorStop(0,'#4bb8ff'); sky.addColorStop(1,'#bdecff');
+  x.fillStyle=sky; x.fillRect(0,0,W,H-GND);
+  // nubes
+  x.fillStyle='rgba(255,255,255,.85)';
+  for(const cl of clouds){ if(S.started&&!S.over){cl.x-=cl.s; if(cl.x<-40)cl.x=W+30;}
+    x.beginPath(); x.ellipse(cl.x,cl.y,22,13,0,0,7); x.ellipse(cl.x+18,cl.y+4,16,10,0,0,7); x.fill(); }
+  // tuberías
+  const g=gap();
+  for(const p of S.pipes){ const grd=x.createLinearGradient(p.x,0,p.x+PW,0); grd.addColorStop(0,'#3ec96b'); grd.addColorStop(1,'#2a9d54');
+    x.fillStyle=grd; x.fillRect(p.x,0,PW,p.gap); x.fillRect(p.x,p.gap+g,PW,H-GND-p.gap-g);
+    x.fillStyle='#2a9d54'; x.fillRect(p.x-3,p.gap-16,PW+6,16); x.fillRect(p.x-3,p.gap+g,PW+6,16); }
+  // suelo
+  x.fillStyle='#d9b25e'; x.fillRect(0,H-GND,W,GND);
+  x.fillStyle='#c99f45'; for(let i=0;i<W;i+=24){ const o=(S.t*2)%24; x.fillRect(i-o,H-GND,12,8); }
+  x.fillStyle='#7bbf4a'; x.fillRect(0,H-GND,W,8);
   // pájaro
-  x.save(); x.translate(80,S.y); x.rotate(Math.max(-0.5,Math.min(1,S.v/12)));
+  x.save(); x.translate(BIRDX,S.y); x.rotate(Math.max(-0.5,Math.min(1.1,S.v/11)));
   x.fillStyle='#ffd23f'; x.beginPath(); x.arc(0,0,BR,0,7); x.fill();
-  x.fillStyle='#111'; x.beginPath(); x.arc(5,-4,2.5,0,7); x.fill();
-  x.fillStyle='#ff8c42'; x.beginPath(); x.moveTo(BR,0); x.lineTo(BR+7,3); x.lineTo(BR,6); x.fill();
+  x.fillStyle='#ffb300'; x.beginPath(); x.ellipse(-3,3+S.wing*4,7,4,0.4,0,7); x.fill(); // ala
+  x.fillStyle='#fff'; x.beginPath(); x.arc(5,-4,4,0,7); x.fill();
+  x.fillStyle='#111'; x.beginPath(); x.arc(6.5,-4,2,0,7); x.fill();
+  x.fillStyle='#ff8c42'; x.beginPath(); x.moveTo(BR,0); x.lineTo(BR+8,3); x.lineTo(BR,6); x.fill();
   x.restore();
-  x.fillStyle='#0d1117'; x.font='bold 30px system-ui'; x.textAlign='center'; x.fillText(S.score,W/2,54);
-  if(!S.started){ x.fillStyle='rgba(13,17,23,.75)'; x.font='16px system-ui'; x.fillText('toca o ESPACIO para volar',W/2,H/2+60); }
-  if(S.over){ x.fillStyle='rgba(13,17,23,.85)'; x.font='bold 26px system-ui'; x.fillText('¡Chocaste!',W/2,H/2); x.font='15px system-ui'; x.fillText('toca para reintentar · récord '+S.best,W/2,H/2+28); }
+  // score + overlays
+  x.fillStyle='#0d1117'; x.font='bold 34px system-ui'; x.textAlign='center'; x.fillText(S.score,W/2,58);
+  if(!S.started){ x.fillStyle='rgba(13,17,23,.8)'; x.font='bold 20px system-ui'; x.fillText('FLAPPY',W/2,H/2-20); x.font='15px system-ui'; x.fillText('toca o ESPACIO para volar',W/2,H/2+14); }
+  if(S.over){ x.fillStyle='rgba(13,17,23,.55)'; x.fillRect(0,0,W,H-GND); x.fillStyle='#fff'; x.font='bold 30px system-ui'; x.fillText('¡Chocaste!',W/2,H/2-10);
+    x.font='16px system-ui'; x.fillText('toca para reintentar',W/2,H/2+22); x.fillText('récord: '+S.best,W/2,H/2+48); }
+  x.restore();
 }
-// API para test automático
-window.__game={ S, flap, get frame(){return S.t;} };
-step();
-</script>
-</body></html>
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+// API de test: avanzar N frames sin depender del render en tiempo real
+window.__game={ S, flap, step(n){ for(let i=0;i<n;i++) update(); }, gap };
+</script></body></html>

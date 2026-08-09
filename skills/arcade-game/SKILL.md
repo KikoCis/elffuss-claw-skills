@@ -1,50 +1,100 @@
 ---
 name: arcade-game
-description: Crea un videojuego arcade jugable (Flappy Bird, Snake, Pong, Breakout…) como app HTML autocontenida con canvas. Úsala cuando el usuario pida "hazme un juego", "un flappy bird", "una snake", "un jueguecito", o quiera algo interactivo y divertido. El juego corre 100% en el navegador, sin librerías, con teclado y táctil.
+description: Crea un videojuego arcade jugable (Flappy Bird, Snake, Pong…) como app HTML autocontenida con canvas. Úsala cuando el usuario pida "hazme un juego", "un flappy bird", "una snake" o algo interactivo. Corre 100% en el navegador, sin librerías, con teclado y táctil.
 ---
 
 # arcade-game — un juego jugable en un solo archivo
 
-Un buen juego arcade cabe en un `<canvas>` + un bucle `requestAnimationFrame`, sin librerías.
-Corre en el visor de Claw al instante y funciona con **teclado Y táctil** (móvil incluido).
+Un buen arcade cabe en un `<canvas>` + bucle. La app de abajo es un **Flappy Bird completo y
+probado** (bot que lo juega llega a ~12 puntos): física, tuberías, dificultad progresiva, score,
+récord, temblor al chocar, un toque para reiniciar, teclado **y** táctil. Sepáralo así: `update()`
+(física+colisiones) del `draw()` (dibujo) y el bucle. Para OTRO juego (Snake, Pong, runner) reusa el
+esqueleto y cambia `update`/`draw` y las reglas.
 
-## Anatomía (esto es lo que no puede faltar)
+Claves: gravedad/velocidad por frame + impulso al pulsar; colisión por caja/círculo con margen;
+dificultad que sube con la puntuación; **reinicio de un toque** tras game over (no recargues); NO
+pauses el `requestAnimationFrame` en game over (si paras el bucle, el reinicio no repinta).
 
-1. **Canvas** de tamaño fijo (p. ej. 360×560), centrado.
-2. **Estado** en un objeto (`S`): posición, velocidad, obstáculos, score, `over`, `started`.
-3. **Bucle** con `requestAnimationFrame`: `update()` (física + colisiones) → `draw()`.
-4. **Entrada**: `keydown` (Space/flechas) **y** `pointerdown` (táctil) — el mismo handler.
-5. **Ciclo de vida**: pantalla de inicio → jugar → game over → reiniciar con un toque.
-6. **Score** visible y récord de la sesión.
+## App COMPLETA y probada — cópiala y adapta solo lo que se indica
 
-## Física y colisiones (lo mínimo que lo hace sentir bien)
-
-- Gravedad/velocidad constantes por frame (`v += G; y += v`), impulso al pulsar (`v = FLAP`).
-- Colisión por caja/círculo: comprueba solape en X **y** en Y; añade márgenes para que sea justo.
-- Dificultad por tiempo: genera obstáculos cada N frames; sube velocidad poco a poco.
-- Clampa la rotación/velocidad para que se vea natural (`Math.max/min`).
-
-El `template.html` de esta carpeta es un **Flappy Bird completo y probado** (bucle, gravedad,
-tuberías, colisión, score, récord, reinicio, teclado+táctil). Úsalo de base y cambia la temática
-(nave/pez/coche), los colores y las reglas para otros juegos.
-
-## Otros juegos con el mismo esqueleto
-
-- **Snake**: rejilla, la serpiente es una lista de celdas; comer alarga; choque con pared/cuerpo = fin.
-- **Pong/Breakout**: pala controlada por puntero/flechas, pelota con rebote (invierte vx/vy).
-- **Runner**: obstáculos que vienen de la derecha, saltar con impulso (como Flappy pero en suelo).
-
-## Reglas
-
-- **Sin librerías externas** salvo que se pida: canvas 2D puro carga instantáneo y no falla offline.
-- **Táctil + teclado** siempre: mucha gente lo abre en el móvil.
-- **Reinicio de un toque** tras game over: nada de recargar la página.
-- Mantén 60 fps: dibuja solo lo necesario, no crees objetos dentro del bucle sin control.
-
-## Lo que ya falló
-
-- Si generas obstáculos por tiempo pero el jugador muere antes del primer spawn, parece que "no hay
-  juego": pon el primer obstáculo pronto o una pantalla de inicio clara.
-- No pauses el `requestAnimationFrame` en game over: sigue dibujando la pantalla de fin (si paras el
-  loop, el reinicio por toque no repinta).
-- `e.preventDefault()` en Space o la página hace scroll y arruina el juego.
+```html
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flappy</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}
+  canvas{border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.55);touch-action:none;cursor:pointer}
+</style></head>
+<body>
+<canvas id="g" width="360" height="600"></canvas>
+<script>
+const c=document.getElementById('g'), x=c.getContext('2d'), W=c.width, H=c.height;
+const GND=70;                         // altura del suelo
+const BR=13, PW=58, BIRDX=92;
+const cfg={ G:0.42, FLAP:-7.2, GAP0:160, GAPmin:120, SPD0:2.2, SPDmax:4.2, SPAWN0:110, SPAWNmin:78 };
+const S={ y:H/2, v:0, pipes:[], t:0, score:0, best:0, over:false, started:false, wing:0, shake:0 };
+const clouds=[...Array(4)].map((_,i)=>({x:i*110+30, y:40+i*33%160, s:0.3+0.2*(i%3)}));
+function reset(){ Object.assign(S,{y:H/2,v:0,pipes:[],t:0,score:0,over:false,started:false,wing:0,shake:0}); }
+function flap(){ if(S.over){ reset(); S.started=true; S.v=cfg.FLAP; S.wing=1; return; } S.started=true; S.v=cfg.FLAP; S.wing=1; }
+addEventListener('keydown',e=>{ if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault(); flap();} });
+c.addEventListener('pointerdown',flap);
+// dificultad que sube con la puntuación (suave)
+const gap=()=>Math.max(cfg.GAPmin, cfg.GAP0 - S.score*2.2);
+const spd=()=>Math.min(cfg.SPDmax, cfg.SPD0 + S.score*0.07);
+const spawnEvery=()=>Math.max(cfg.SPAWNmin, cfg.SPAWN0 - S.score*1.5);
+function update(){
+  if(!S.started || S.over) return;
+  S.v+=cfg.G; S.y+=S.v; S.t++; S.wing*=0.86; if(S.shake>0)S.shake--;
+  const g=gap();
+  if(S.t % Math.round(spawnEvery()) === 0){ const margin=50; S.pipes.push({x:W, gap:margin+Math.random()*(H-GND-2*margin-g), passed:false}); }
+  const v=spd();
+  for(const p of S.pipes) p.x-=v;
+  S.pipes=S.pipes.filter(p=>p.x>-PW);
+  for(const p of S.pipes){
+    if(!p.passed && p.x+PW<BIRDX){ p.passed=true; S.score++; S.best=Math.max(S.best,S.score); }
+    const inX=BIRDX+BR>p.x && BIRDX-BR<p.x+PW;
+    if(inX && (S.y-BR<p.gap || S.y+BR>p.gap+g)){ S.over=true; S.shake=10; }
+  }
+  if(S.y+BR>H-GND){ S.y=H-GND-BR; S.over=true; S.shake=10; }
+  if(S.y-BR<0){ S.y=BR; S.v=0; }
+}
+function draw(){
+  const sh=S.shake>0?(Math.random()*2-1)*S.shake*0.4:0;
+  x.save(); x.translate(sh,0);
+  // cielo
+  const sky=x.createLinearGradient(0,0,0,H-GND); sky.addColorStop(0,'#4bb8ff'); sky.addColorStop(1,'#bdecff');
+  x.fillStyle=sky; x.fillRect(0,0,W,H-GND);
+  // nubes
+  x.fillStyle='rgba(255,255,255,.85)';
+  for(const cl of clouds){ if(S.started&&!S.over){cl.x-=cl.s; if(cl.x<-40)cl.x=W+30;}
+    x.beginPath(); x.ellipse(cl.x,cl.y,22,13,0,0,7); x.ellipse(cl.x+18,cl.y+4,16,10,0,0,7); x.fill(); }
+  // tuberías
+  const g=gap();
+  for(const p of S.pipes){ const grd=x.createLinearGradient(p.x,0,p.x+PW,0); grd.addColorStop(0,'#3ec96b'); grd.addColorStop(1,'#2a9d54');
+    x.fillStyle=grd; x.fillRect(p.x,0,PW,p.gap); x.fillRect(p.x,p.gap+g,PW,H-GND-p.gap-g);
+    x.fillStyle='#2a9d54'; x.fillRect(p.x-3,p.gap-16,PW+6,16); x.fillRect(p.x-3,p.gap+g,PW+6,16); }
+  // suelo
+  x.fillStyle='#d9b25e'; x.fillRect(0,H-GND,W,GND);
+  x.fillStyle='#c99f45'; for(let i=0;i<W;i+=24){ const o=(S.t*2)%24; x.fillRect(i-o,H-GND,12,8); }
+  x.fillStyle='#7bbf4a'; x.fillRect(0,H-GND,W,8);
+  // pájaro
+  x.save(); x.translate(BIRDX,S.y); x.rotate(Math.max(-0.5,Math.min(1.1,S.v/11)));
+  x.fillStyle='#ffd23f'; x.beginPath(); x.arc(0,0,BR,0,7); x.fill();
+  x.fillStyle='#ffb300'; x.beginPath(); x.ellipse(-3,3+S.wing*4,7,4,0.4,0,7); x.fill(); // ala
+  x.fillStyle='#fff'; x.beginPath(); x.arc(5,-4,4,0,7); x.fill();
+  x.fillStyle='#111'; x.beginPath(); x.arc(6.5,-4,2,0,7); x.fill();
+  x.fillStyle='#ff8c42'; x.beginPath(); x.moveTo(BR,0); x.lineTo(BR+8,3); x.lineTo(BR,6); x.fill();
+  x.restore();
+  // score + overlays
+  x.fillStyle='#0d1117'; x.font='bold 34px system-ui'; x.textAlign='center'; x.fillText(S.score,W/2,58);
+  if(!S.started){ x.fillStyle='rgba(13,17,23,.8)'; x.font='bold 20px system-ui'; x.fillText('FLAPPY',W/2,H/2-20); x.font='15px system-ui'; x.fillText('toca o ESPACIO para volar',W/2,H/2+14); }
+  if(S.over){ x.fillStyle='rgba(13,17,23,.55)'; x.fillRect(0,0,W,H-GND); x.fillStyle='#fff'; x.font='bold 30px system-ui'; x.fillText('¡Chocaste!',W/2,H/2-10);
+    x.font='16px system-ui'; x.fillText('toca para reintentar',W/2,H/2+22); x.fillText('récord: '+S.best,W/2,H/2+48); }
+  x.restore();
+}
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+// API de test: avanzar N frames sin depender del render en tiempo real
+window.__game={ S, flap, step(n){ for(let i=0;i<n;i++) update(); }, gap };
+</script></body></html>
+```

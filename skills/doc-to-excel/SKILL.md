@@ -1,61 +1,95 @@
 ---
 name: doc-to-excel
-description: Coge datos de un documento (texto, CSV, tabla pegada o un .xlsx/.csv de una carpeta autorizada) y genera un Excel DESCARGABLE con fórmulas y gráficas, dentro del navegador. Úsala cuando el usuario pida "pasa esto a Excel", "hazme una hoja con estos datos", "un Excel con fórmulas y gráficas", "convierte este documento en una tabla", o quiera analizar/visualizar datos y llevárselos a Excel.
+description: Coge datos de un documento (CSV/texto/tabla pegada o un .xlsx de una carpeta autorizada) y genera un Excel DESCARGABLE con fórmulas y una gráfica, dentro del navegador. Úsala cuando el usuario pida "pasa esto a Excel", "un Excel con fórmulas y gráficas", "convierte este documento en tabla" o quiera analizar/visualizar datos.
 ---
 
 # doc-to-excel — de un documento a un Excel con fórmulas y gráficas
 
-Todo local, en el navegador: se leen los datos, se construye un `.xlsx` con **SheetJS** (incluye
-**fórmulas** de verdad, ej. `SUM`, `AVERAGE`), se dibujan **gráficas** con **Chart.js**, y se ofrece
-descargar el Excel. Nada sale de la máquina.
+Todo local: se parsean los datos, se dibuja una **gráfica** (Chart.js), y se genera un `.xlsx` con
+**fórmulas reales** (SheetJS) que se descarga. Adapta las columnas/tipo de gráfica a los datos del
+usuario; deja el flujo (parsear → tabla → gráfica → descargar) como está.
 
-## Flujo
+Honesto sobre gráficas: SheetJS (community) escribe **datos + fórmulas** pero **no incrusta gráficas
+nativas** en el `.xlsx` de forma fiable → la gráfica va en la app; en Excel el usuario hace
+«Insertar gráfico» sobre los datos. La fórmula va **sin `=`**, como `{t:'n', f:'SUM(B2:B6)'}`.
 
-1. **Conseguir los datos.** Si el usuario los pega, parséalos. Si están en una carpeta autorizada,
-   léelos con las tools de Claw (`fs.read` / lectura de `.xlsx` con SheetJS). Normaliza a una matriz
-   `[[cabeceras...], [fila...], ...]`.
-2. **Construir el Excel** con SheetJS: datos + una fila/columna de **fórmulas** (totales, medias).
-3. **Gráficas** con Chart.js en la propia app (barras/líneas/tarta según los datos).
-4. **Descargar** el `.xlsx`.
-
-## Patrón que FUNCIONA (probado)
+## App COMPLETA y probada — cópiala y adapta solo lo que se indica
 
 ```html
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Documento → Excel</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3}
+  header{padding:14px 18px;border-bottom:1px solid #232a34;font-weight:650}
+  main{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;max-width:1100px}
+  @media(max-width:780px){main{grid-template-columns:1fr}}
+  .card{background:#161b22;border:1px solid #232a34;border-radius:12px;padding:14px}
+  textarea{width:100%;height:150px;background:#0b0f14;color:#e6edf3;border:1px solid #232a34;border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:.82rem;box-sizing:border-box}
+  table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:10px}
+  th,td{border:1px solid #232a34;padding:6px 9px;text-align:right}th:first-child,td:first-child{text-align:left}
+  th{background:#0b0f14;color:#8b949e}
+  button{background:linear-gradient(135deg,#7c5cff,#ff5cd6);color:#fff;border:none;border-radius:9px;padding:10px 16px;font-weight:600;cursor:pointer;margin-top:10px}
+  canvas{margin-top:8px}
+</style></head>
+<body>
+<header>📄 → 📊 Documento a Excel (con fórmulas y gráfica)</header>
+<main>
+  <section class="card">
+    <div style="font-size:.8rem;color:#8b949e;margin-bottom:6px">Pega tus datos (CSV: primera fila cabeceras)</div>
+    <textarea id="src">Mes,Ventas,Gastos
+Ene,1200,800
+Feb,1500,900
+Mar,2100,1100
+Abr,1800,950
+May,2400,1200</textarea>
+    <button id="go">Generar tabla y gráfica</button>
+    <button id="dl">⬇ Descargar Excel</button>
+  </section>
+  <section class="card">
+    <div id="tablewrap"></div>
+    <canvas id="chart" height="180"></canvas>
+  </section>
+</main>
 <script type="module">
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
 import Chart from 'https://esm.sh/chart.js@4/auto';
-
-const rows = [['Mes','Ventas'],['Ene',100],['Feb',150],['Mar',210]];
-
-// 1) hoja con datos + FÓRMULA real (SUM). Ojo: la fórmula va sin '=' y con {t:'n', f:'...'}
-const data = [...rows, ['Total', { t:'n', f:`SUM(B2:B${rows.length})` }]];
-const ws = XLSX.utils.aoa_to_sheet(data);
-const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Datos');
-
-// 2) descargar el .xlsx
-function downloadXLSX(){ const buf = XLSX.write(wb,{bookType:'xlsx',type:'array'});
+const $=id=>document.getElementById(id);
+let rows=[], chart=null;
+function parse(txt){ return txt.trim().split(/\n/).map(l=>l.split(',').map(c=>{const n=Number(c);return c.trim()!==''&&!isNaN(n)?n:c.trim();})); }
+function render(){
+  rows=parse($('src').value); const head=rows[0], body=rows.slice(1);
+  // tabla + fila TOTAL con fórmula visible
+  let h='<table><thead><tr>'+head.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  h+=body.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+  const totals=head.map((c,i)=> i===0?'Total': body.reduce((a,r)=>a+(+r[i]||0),0));
+  h+='<tr>'+totals.map((c,i)=>`<td><b>${c}</b></td>`).join('')+'</tr></tbody></table>';
+  $('tablewrap').innerHTML=h;
+  // gráfica (todas las columnas numéricas)
+  const numCols=head.map((c,i)=>i).filter(i=>i>0 && body.every(r=>typeof r[i]==='number'));
+  if(chart) chart.destroy();
+  chart=new Chart($('chart'),{ type:'bar',
+    data:{ labels:body.map(r=>r[0]), datasets:numCols.map((i,k)=>({ label:head[i], data:body.map(r=>r[i]),
+      backgroundColor:['#7c5cff','#ff5cd6','#3fb950','#f0b429'][k%4] })) },
+    options:{ plugins:{legend:{labels:{color:'#e6edf3'}}}, scales:{x:{ticks:{color:'#8b949e'}},y:{ticks:{color:'#8b949e'}}} } });
+}
+function buildWB(){
+  const head=rows[0], body=rows.slice(1);
+  const data=[...rows];
+  // fila de fórmulas SUM por columna numérica
+  const total=['Total']; for(let ci=1;ci<head.length;ci++){ const col=XLSX.utils.encode_col(ci);
+    total.push({t:'n', f:`SUM(${col}2:${col}${body.length+1})`}); }
+  data.push(total);
+  const ws=XLSX.utils.aoa_to_sheet(data); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Datos'); return wb;
+}
+$('go').addEventListener('click',render);
+$('dl').addEventListener('click',()=>{ const buf=XLSX.write(buildWB(),{bookType:'xlsx',type:'array'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-  a.download='datos.xlsx'; a.click(); }
-
-// 3) gráfica en la app
-new Chart(canvas, { type:'bar',
-  data:{ labels: rows.slice(1).map(r=>r[0]), datasets:[{ label: rows[0][1], data: rows.slice(1).map(r=>r[1]) }] } });
+  a.download='datos.xlsx'; a.click(); });
+render();
+window.__test=()=>{ const buf=XLSX.write(buildWB(),{bookType:'xlsx',type:'array'}); const ws=buildWB().Sheets.Datos;
+  return { xlsxBytes:buf.byteLength, hasFormula:!!ws['B7']&&/SUM/.test(ws['B7'].f||''), chart:!!chart }; };
+window.__ready=true;
 </script>
+</body></html>
 ```
-
-La app debe tener: la **tabla** visible, la **gráfica**, y un botón **Descargar Excel**.
-
-## Lo honesto sobre las gráficas
-
-SheetJS (community) **escribe datos y fórmulas**, pero **no incrusta gráficas nativas** dentro del
-`.xlsx` de forma fiable en el navegador. Así que:
-- El **.xlsx** que se descarga lleva **datos + fórmulas** (recalculan solos al abrirlo en Excel).
-- Las **gráficas** se muestran en la app (Chart.js) y, si el usuario las quiere en el fichero, se
-  exportan como **imagen** (`chart.toBase64Image()`) para pegar, o se le dice que en Excel es
-  «Insertar gráfico» sobre los datos ya puestos. No prometas gráficos nativos incrustados.
-
-## Lo que ya falló
-
-- La fórmula en SheetJS va **sin `=`** y como celda `{ t:'n', f:'SUM(B2:B4)' }`; con `=` delante no cala.
-- Números como strings ('100') rompen las fórmulas: convierte a `Number` antes de meterlos.
-- Para leer un `.xlsx` de entrada usa `XLSX.read(arrayBuffer)` + `XLSX.utils.sheet_to_json`.
