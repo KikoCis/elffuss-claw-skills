@@ -14,7 +14,7 @@ el caso (ventas, reunión, entrevista, soporte).
 mensajes `{kind:'transcript', text, speaker}` — así el **Translator** (u otra app Elffuss del MISMO
 origen) le manda cada intervención sin copiar/pegar. También hay una caja para pegar/teclear y
 `window.__pipe(text, speaker)` para pruebas. El pipe SOLO funciona entre apps del mismo origen (mismo
-`elffuss.utopiaia.com`), que es donde comparten caché, motor y permisos.
+`elffuss.com`), que es donde comparten caché, motor y permisos.
 
 **Diseño:** sobrio y editorial — sin emojis, sin frameworks, sin gradientes de colores. Tipografía de
 sistema con titulares serif, filetes finos, etiquetas en versalitas. Mantén ese registro si lo adaptas.
