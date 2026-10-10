@@ -1,6 +1,6 @@
 # elffuss-claw-skills
 
-Skills **browser-native** para [Elffuss Claw](https://elffuss-claw.utopiaia.com) — todas corren
+Skills **browser-native** para [Elffuss Claw](https://claw.elffuss.com) — todas corren
 100% en el navegador (nada de Python ni backend), así se pueden **instalar y usar de verdad** en Claw:
 
 | Skill | Qué hace |
